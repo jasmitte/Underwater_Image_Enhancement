@@ -49,25 +49,51 @@ class ResidualBlock(nn.Module):
         return x + self.block(x)
 
 
-class SmallUNet(nn.Module):
+class UNet(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, final_activation: str = "sigmoid"):
         super().__init__()
         self.enc1 = ConvBlock(in_channels, 32)
         self.enc2 = ConvBlock(32, 64)
+        self.enc3 = ConvBlock(64, 128)
         self.pool = nn.AvgPool2d(2)
-        self.res = ResidualBlock(64)
-        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
-        self.dec1 = ConvBlock(64, 32)
+        
+        self.bottleneck = ResidualBlock(128)
+        
+        self.up3 = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+        self.dec3 = ConvBlock(128 + 64, 64)
+        
+        self.up2 = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+        self.dec2 = ConvBlock(64 + 32, 32)
+
         self.out_conv = nn.Conv2d(32, out_channels, kernel_size=3, padding=1)
         self.final_activation = final_activation
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        
         x1 = self.enc1(x)
         x2 = self.enc2(self.pool(x1))
-        x3 = self.res(x2)
-        x4 = self.up(x3)
-        x5 = self.dec1(x4)
-        out = self.out_conv(x5)
+        x3 = self.enc3(self.pool(x2))
+
+        
+        bn = self.bottleneck(x3)
+
+        
+        d3 = self.up3(bn)
+        
+        if d3.shape[2:] != x2.shape[2:]:
+            d3 = F.interpolate(d3, size=x2.shape[2:], mode='bilinear', align_corners=False)
+        d3 = torch.cat([d3, x2], dim=1)
+        d3 = self.dec3(d3)
+
+        d2 = self.up2(d3)
+        
+        if d2.shape[2:] != x1.shape[2:]:
+            d2 = F.interpolate(d2, size=x1.shape[2:], mode='bilinear', align_corners=False)
+        d2 = torch.cat([d2, x1], dim=1)
+        d2 = self.dec2(d2)
+
+        out = self.out_conv(d2)
+
         if self.final_activation == "sigmoid":
             out = torch.sigmoid(out)
         elif self.final_activation == "tanh":
@@ -80,7 +106,9 @@ class AtmosphericNet(nn.Module):
         super().__init__()
         self.features = nn.Sequential(
             ConvBlock(3, 32),
+            ResidualBlock(32),
             ConvBlock(32, 64),
+            ResidualBlock(64),
             nn.AdaptiveAvgPool2d(1),
         )
         self.head = nn.Sequential(
@@ -99,10 +127,24 @@ class AtmosphericNet(nn.Module):
 class ZIDModel:
     def __init__(self, config: ZIDConfig | None = None):
         self.config = config or ZIDConfig()
-        device_name = self.config.device or ("cuda" if torch.cuda.is_available() else "cpu")
+        device_name = self.config.device
+        if device_name == "gpu":
+            if torch.cuda.is_available():
+                device_name = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device_name = "mps"
+            else:
+                device_name = "cpu"
+        elif not device_name:  # None or empty
+            if torch.cuda.is_available():
+                device_name = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device_name = "mps"
+            else:
+                device_name = "cpu"
         self.device = torch.device(device_name)
-        self.j_net = SmallUNet(3, 3, final_activation="sigmoid").to(self.device)
-        self.t_net = SmallUNet(3, 1, final_activation="sigmoid").to(self.device)
+        self.j_net = UNet(3, 3, final_activation="sigmoid").to(self.device)
+        self.t_net = UNet(3, 1, final_activation="sigmoid").to(self.device)
         self.a_net = AtmosphericNet().to(self.device)
 
     def parameters(self):
@@ -123,13 +165,28 @@ class ZIDModel:
     def _smooth_atmosphere(self, atmo: torch.Tensor) -> torch.Tensor:
         return (atmo - atmo.mean(dim=0, keepdim=True)).pow(2).mean()
 
+    def _laplacian_norm(self, tensor: torch.Tensor) -> torch.Tensor:
+        
+        if tensor.shape[2] < 3 or tensor.shape[3] < 3:
+            return torch.tensor(0.0, device=self.device)
+        
+        num_channels = tensor.shape[1]
+        
+        kernel = torch.ones(num_channels, 1, 3, 3, device=self.device) / 9.0
+        
+        padded_tensor = F.pad(tensor, (1, 1, 1, 1), mode='reflect')
+        
+        mean_neighbors = F.conv2d(padded_tensor, kernel, groups=num_channels)
+        
+        return (tensor - mean_neighbors).pow(2).mean()
+
     def _forward_networks(self, hazy: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         j_hat = self.j_net(hazy)
         t_hat = self.t_net(hazy)
         a_hat = self.a_net(hazy)
         return j_hat, t_hat, a_hat
 
-    def _pad_to_even(self, tensor: torch.Tensor) -> Tuple[torch.Tensor, int, int]:
+    def _pad_to_even(self, tensor: torch.Tensor) -> Tuple[torch.ndarray, int, int]:
         _, _, h, w = tensor.shape
         pad_h = (2 - h % 2) % 2
         pad_w = (2 - w % 2) % 2

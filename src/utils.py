@@ -12,8 +12,6 @@ from PIL import Image
 
 @dataclass
 class ImageBatch:
-    """Container for batching enhancement results."""
-
     paths: List[Path]
     images: List[np.ndarray]
 
