@@ -1,7 +1,7 @@
 torch>=2.4
 torchvision>=0.19
 numpy>=1.26
-opencv-python>=4.10
+opencv-python-headless>=4.10
 Pillow>=10.4
 scikit-image>=0.24
 tqdm>=4.66
