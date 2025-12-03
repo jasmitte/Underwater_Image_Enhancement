@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zero-shot-dehaze"
+version = "0.1.0"
+authors = [
+  { name="Jack Anders Smitterberg", email="jasmitte@mtu.edu" },
+]
+description = "A Zero-Shot Underwater Image Dehazing Library"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "numpy>=1.26",
+    "opencv-python>=4.10",
+    "Pillow>=10.4",
+    "scikit-image>=0.24",
+    "tqdm>=4.66",
+    "pandas>=2.2",
+    "matplotlib>=3.9",
+    "seaborn>=0.13",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/jasmitte/Underwater_Image_Enhancement"
+"Bug Tracker" = "https://github.com/jasmitte/Underwater_Image_Enhancement/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["zero_shot_dehaze"]
