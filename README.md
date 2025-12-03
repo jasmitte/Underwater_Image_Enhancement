@@ -2,7 +2,11 @@
 
 This repository contains a Python implementation of the image enhancement pipeline described in the 2024 paper, **"An Enhanced Multi-Stage Approach for Dehazing Underwater Images"** by Murugan et al. The project faithfully implements the three-stage process outlined in the paper to correct for color distortion, low contrast, and haze in underwater photographs.
 
-![Pipeline Visualization](https://i.imgur.com/example.png)  <!-- Placeholder for a pipeline visualization image -->
+---
+**Disclaimer:** This project is a re-implementation of the research work described in the referenced papers. The author of this repository is not affiliated with the original authors of the papers. This implementation represents a best-effort attempt to accurately reproduce the described methodology, but it is not guaranteed to be an exact or fully accurate replication of the authors' original work or results.
+---
+
+![Pipeline Visualization](figures/pipeline_visualization.png)  <!-- Placeholder for a pipeline visualization image -->
 
 ## Features
 
