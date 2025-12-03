@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.pipeline import EnhancerConfig, MultistageUnderwaterEnhancer
-from src.zid import ZIDConfig
+from zero_shot_dehaze.pipeline import EnhancerConfig, MultistageUnderwaterEnhancer
+from zero_shot_dehaze.zid import ZIDConfig
 
 
 def _make_synthetic_scene(size: int = 64) -> tuple[np.ndarray, np.ndarray]:

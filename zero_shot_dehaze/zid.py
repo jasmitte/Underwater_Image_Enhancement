@@ -19,8 +19,8 @@ class ZIDConfig:
     lambda_rec: float = 1.0
     lambda_atm: float = 0.1
     lambda_dark: float = 0.01
-    lambda_laplacian_t: float = 0.02
-    lambda_laplacian_a: float = 0.001
+    lambda_laplacian_t: float = 100.0
+    lambda_laplacian_a: float = 0.01
     device: str | None = None
 
 
@@ -111,17 +111,32 @@ class AtmosphericNet(nn.Module):
             ResidualBlock(64),
             nn.AdaptiveAvgPool2d(1),
         )
-        self.head = nn.Sequential(
+        # Separate heads for mean (mu) and log variance (log_var) for variational inference
+        self.mu_head = nn.Sequential(
             nn.Flatten(),
             nn.Linear(64, 32),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Linear(32, 3),
             nn.Sigmoid(),
         )
+        self.logvar_head = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(64, 32),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(32, 3),
+        )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         feats = self.features(x)
-        return self.head(feats).view(-1, 3, 1, 1)
+        mu = self.mu_head(feats).view(-1, 3, 1, 1)
+        logvar = self.logvar_head(feats).view(-1, 3, 1, 1)
+
+        # Reparameterization trick: sample = mu + std * epsilon
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        a_sample = mu + std * eps
+
+        return a_sample, mu, logvar
 
 
 class ZIDModel:
@@ -165,6 +180,14 @@ class ZIDModel:
     def _smooth_atmosphere(self, atmo: torch.Tensor) -> torch.Tensor:
         return (atmo - atmo.mean(dim=0, keepdim=True)).pow(2).mean()
 
+    def _kl_divergence(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        """
+        Compute KL divergence KL(N(mu, sigma^2) || N(0, I))
+        As per equation (4) in the paper:
+        LKL = (1/2) * sum[(mu_zi)^2 + (sigma_zi)^2 - 1 - log((sigma_zi)^2)]
+        """
+        return 0.5 * torch.sum(mu.pow(2) + logvar.exp() - 1 - logvar)
+
     def _laplacian_norm(self, tensor: torch.Tensor) -> torch.Tensor:
         
         if tensor.shape[2] < 3 or tensor.shape[3] < 3:
@@ -180,11 +203,11 @@ class ZIDModel:
         
         return (tensor - mean_neighbors).pow(2).mean()
 
-    def _forward_networks(self, hazy: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _forward_networks(self, hazy: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         j_hat = self.j_net(hazy)
         t_hat = self.t_net(hazy)
-        a_hat = self.a_net(hazy)
-        return j_hat, t_hat, a_hat
+        a_sample, a_mu, a_logvar = self.a_net(hazy)
+        return j_hat, t_hat, a_sample, a_mu, a_logvar
 
     def _pad_to_even(self, tensor: torch.Tensor) -> Tuple[torch.ndarray, int, int]:
         _, _, h, w = tensor.shape
@@ -204,14 +227,26 @@ class ZIDModel:
         iterator = tqdm(range(self.config.max_iterations), desc="ZID", leave=False)
         for _ in iterator:
             optimizer.zero_grad()
-            j_hat, t_hat, a_hat = self._forward_networks(hazy)
-            recon = j_hat * t_hat + a_hat * (1 - t_hat)
+            j_hat, t_hat, a_sample, a_mu, a_logvar = self._forward_networks(hazy)
+
+            # Reconstruction Loss (Equation 2)
+            recon = j_hat * t_hat + a_sample * (1 - t_hat)
             loss_rec = F.mse_loss(recon, hazy)
-            loss_atm = F.mse_loss(a_hat.view(-1, 3), atmosphere_prior.unsqueeze(0))
+
+            # Atmospheric Light Loss (Equations 3-4): LA = LH + LKL
+            loss_h = F.mse_loss(a_mu.view(-1, 3), atmosphere_prior.unsqueeze(0))
+            loss_kl = self._kl_divergence(a_mu, a_logvar)
+            loss_atm = loss_h + loss_kl
+
+            # Dark Channel Prior Loss (Equation 5)
             dark_channel = torch.min(j_hat, dim=1)[0]
             loss_dark = dark_channel.mean()
+
+            # Regularization Loss (Equations 6-7)
             loss_laplacian_t = self._laplacian_norm(t_hat)
-            loss_laplacian_a = self._laplacian_norm(a_hat)
+            loss_laplacian_a = self._laplacian_norm(a_sample)
+
+            # Total Loss
             loss = (
                 self.config.lambda_rec * loss_rec
                 + self.config.lambda_atm * loss_atm
@@ -221,10 +256,10 @@ class ZIDModel:
             )
             loss.backward()
             optimizer.step()
-            iterator.set_postfix({"L_rec": float(loss_rec.detach().cpu())})
+            iterator.set_postfix({"L_rec": float(loss_rec.detach().cpu()), "L_kl": float(loss_kl.detach().cpu())})
 
         with torch.no_grad():
-            j_hat, t_hat, _ = self._forward_networks(hazy)
+            j_hat, t_hat, _, _, _ = self._forward_networks(hazy)
         j_hat = j_hat[:, :, :orig_h, :orig_w]
         t_hat = t_hat[:, :, :orig_h, :orig_w]
         clean = j_hat.squeeze(0).permute(1, 2, 0).clamp(0.0, 1.0).cpu().numpy()

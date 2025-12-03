@@ -141,4 +141,24 @@ cython_debug/
 notebooks/
 data/
 Reference_Paper/
+figures/
+tests/
 *.zip
+
+# LaTeX source and build artifacts
+*.tex
+*.bib
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Personal configuration
+.claude/
+
+# macOS
+.DS_Store
