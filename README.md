@@ -8,26 +8,26 @@ This repository contains a Python implementation of the image enhancement pipeli
 
 ## Features
 
-*   **Faithful Three-Stage Pipeline:** Implements the exact methodology from the An_Enhanced paper (CLAHE → ZID → Color Correction).
-*   **Zero-Shot Dehazing:** Utilizes a Zero-shot Image Dehazing (ZID) model that optimizes on each image individually, requiring no pre-training on paired datasets.
-*   **Correct Paper Implementation:** Preprocessing uses ONLY CLAHE (not multiple techniques), matching Section III.A of the paper.
-*   **Zero-UMSIE Network Architectures:** J-Net, T-Net, and A-Net implemented as detailed in the referenced Zero-UMSIE framework.
-*   **Comprehensive Post-Processing:** Color corrections (white balance, gamma, saturation) applied AFTER dehazing as specified in Section III.B.
-*   **Flexible CLI:** Command-line interface for single images or batch processing of entire directories.
-*   **Configurable:** All pipeline parameters easily adjustable through CLI or Python API.
-*   **Quantitative Evaluation:** Supports PSNR/SSIM metric calculation with ground-truth reference images. 
+*   **Multi-Stage Enhancement Pipeline:** Combines pre-processing, deep learning-based dehazing, and post-processing color correction for robust underwater image restoration.
+*   **Zero-Shot Learning:** Utilizes an unsupervised optimization approach that requires no training data, adapting to each specific image at runtime.
+*   **Physical Model Inversion:** Solves the underwater image formation model to estimate scene radiance, transmission maps, and atmospheric light.
+*   **Advanced Network Architectures:** Implements specialized U-Net and CNN architectures (J-Net, T-Net, A-Net) designed for underwater scene estimation.
+*   **Comprehensive Post-Processing:** Includes automated white balancing, adaptive saturation adjustment, and gamma correction to restore visual quality.
+*   **Flexible CLI & API:** Provides both a command-line interface for batch processing and a Python API for integration into other workflows.
+*   **Quantitative Metrics:** Built-in support for calculating PSNR and SSIM quality metrics against reference images.
+*   **GPU Acceleration:** Fully supports CUDA and MPS (Mac) acceleration for faster inference. 
 ## Methodology and Architecture
 
-The enhancement process faithfully implements the three-stage workflow from the paper "An Enhanced Multi-Stage Approach for Dehazing Underwater Images" (Murugan et al., 2024). This implementation follows the exact methodology described in the paper, with network architectures based on the Zero-UMSIE framework referenced in the original work.
+The enhancement process implements a three-stage workflow inspired by "An Enhanced Multi-Stage Approach for Dehazing Underwater Images" (Murugan et al., 2024). Network architectures are based on the Zero-UMSIE framework referenced in the original work.
 
-### Stage 1: Pre-processing (Section III.A)
-As specified in the paper, this stage performs **ONLY** contrast enhancement to prepare the image for dehazing:
+### Stage 1: Pre-processing
+This initial stage performs **ONLY** contrast enhancement to prepare the image for dehazing:
 
 *   **Contrast Limited Adaptive Histogram Equalization (CLAHE):** Applied in LAB color space to enhance contrast while preserving color information
 
-**Important:** The paper explicitly states to use "histogram equalization **or** CLAHE" - meaning only ONE contrast enhancement method. All other color corrections (white balance, gamma correction, saturation adjustment) are performed in Stage 3 (post-processing) **AFTER** dehazing, not before.
+**Important:** Only one contrast enhancement method (histogram equalization or CLAHE) is applied. Other color corrections (white balance, gamma correction, saturation adjustment) are deferred to the post-processing stage, AFTER dehazing.
 
-### Stage 2: Zero-Shot Image Dehazing (ZID) (Section III.A)
+### Stage 2: Zero-Shot Image Dehazing (ZID)
 The core of the pipeline is the ZID model, which decomposes each underwater image into three fundamental components using the underwater imaging model:
 
 **I(x) = J(x)·t(x) + A·(1 - t(x))**
@@ -42,7 +42,7 @@ This is achieved by jointly optimizing three neural networks (J-Net, T-Net, and 
 
 #### Network Architectures (Based on Zero-UMSIE)
 
-The An_Enhanced paper references these network structures, which are detailed in the Zero-UMSIE framework:
+The network structures are detailed in the Zero-UMSIE framework:
 
 *   **J-Net (Scene Radiance Estimation Network):**
     - 5 convolutional layers (3×3 kernels, 64 channels each)
@@ -72,22 +72,36 @@ The loss function enforces physical and statistical priors about underwater imag
 *   **Dark Channel Prior Loss (`L_dark`):** Statistics-based loss for scene radiance
 *   **Laplacian Regularization Loss (`L_reg`):** Smoothness prior for transmission and atmospheric light
 
-### Stage 3: Post-processing (Section III.B - Color Correction)
-After dehazing, this final stage applies color corrections to produce the final enhanced image. As specified in the An_Enhanced paper, the techniques include:
+### Stage 3: Post-processing
+After dehazing, this final stage applies color corrections to produce the final enhanced image. The techniques include:
 
 *   **White Balance Correction:** Neutralizes color casts by adjusting RGB channel means
 *   **Color Enhancement:** Saturation adjustments to restore vibrant underwater colors
 *   **Gamma Correction:** Final brightness/contrast adjustments
 *   **CLAHE (Optional):** Additional contrast enhancement if needed
 
-**Note:** These color corrections were intentionally excluded from Stage 1 (preprocessing) and are applied here AFTER dehazing, as specified in the paper's methodology.
+**Note:** These color corrections are intentionally applied in this stage AFTER dehazing, not during preprocessing.
 
 ## Installation
 
+There are two primary ways to install and use this library:
+
+### 1. Install from PyPI (Recommended for Users)
+
+Once the package is published to PyPI, you can install it directly using pip:
+
+```bash
+pip install zero-shot-dehaze
+```
+
+### 2. Install from Source (For Developers)
+
+If you intend to contribute to the project, make modifications, or run the examples from the repository, you can install from source:
+
 1.  Clone the repository:
     ```bash
-    git clone <repository-url>
-    cd <repository-directory>
+    git clone https://github.com/jasmitte/Underwater_Image_Enhancement.git
+    cd Underwater_Image_Enhancement
     ```
 
 2.  Create and activate a Python virtual environment (recommended):
@@ -96,9 +110,9 @@ After dehazing, this final stage applies color corrections to produce the final 
     source .venv/bin/activate
     ```
 
-3.  Install the package:
+3.  Install the package in editable mode:
     ```bash
-    pip install .
+    pip install -e .
     ```
 
 ## Usage
