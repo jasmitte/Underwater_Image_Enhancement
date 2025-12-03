@@ -157,8 +157,5 @@ tests/
 *.fdb_latexmk
 *.synctex.gz
 
-# Personal configuration
-.claude/
-
 # macOS
 .DS_Store
